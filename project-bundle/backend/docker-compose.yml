@@ -1,0 +1,46 @@
+services:
+  db:
+    image: timescale/timescaledb:latest-pg16
+    environment:
+      POSTGRES_USER: industrialmind
+      POSTGRES_PASSWORD: industrialmind
+      POSTGRES_DB: industrialmind
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+    ports: ["5432:5432"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U industrialmind"]
+      interval: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    ports: ["1883:1883"]
+    command: mosquitto -c /mosquitto-no-auth.conf
+
+  api:
+    build: .
+    env_file: .env
+    depends_on:
+      db: {condition: service_healthy}
+      redis: {condition: service_started}
+    ports: ["8000:8000"]
+
+  # One worker per camera. Give it the GPU if the host has one.
+  vision:
+    build: .
+    env_file: .env
+    command: python -m app.services.vision
+    depends_on: [api]
+    deploy:
+      resources:
+        reservations:
+          devices: [{capabilities: [gpu]}]
+
+volumes:
+  pgdata:
